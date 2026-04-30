@@ -85,7 +85,7 @@ def send_to_telegram(video_path):
 
 if __name__ == "__main__":
     FILE_GAMBAR = "produk.jpg"
-    NAMA_PRODUK = "Smartwatch Ultra Gen 2" # Ganti tiap mau upload
+    NAMA_PRODUK = os.getenv('PRODUCT_NAME', 'Produk Viral')
     OUTPUT = "video_viral.mp4"
     
     if os.path.exists(FILE_GAMBAR):
