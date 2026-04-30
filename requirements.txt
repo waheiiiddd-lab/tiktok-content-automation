@@ -2,3 +2,4 @@ google-genai
 moviepy>=2.0.0
 requests
 edge-tts
+Pillow
