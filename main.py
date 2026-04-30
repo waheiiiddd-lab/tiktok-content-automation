@@ -122,4 +122,3 @@ if __name__ == "__main__":
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVideo"
         with open("video_final.mp4", 'rb') as v:
             requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID, 'caption': '✅ Video Otomatis Ready!'}, files={'video': v})
-    
