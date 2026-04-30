@@ -1,73 +1,103 @@
 import os
-import requests
+import asyncio
 import json
+import requests
+import random
 from google.genai import Client
-from moviepy import ImageClip, TextClip, CompositeVideoClip, concatenate_videoclips
+from moviepy import (
+    ImageClip, TextClip, CompositeVideoClip, 
+    concatenate_videoclips, AudioFileClip, ColorClip
+)
 
 # --- 1. SETUP KREDENSIAL ---
 GEMINI_KEY = os.getenv('GEMINI_API_KEY')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
 client = Client(api_key=GEMINI_KEY)
 
-def get_slang_narration(product_name):
-    prompt = f"Buat skrip TikTok Affiliate: {product_name}. Bahasa gaul TikTok 2026, No Cap. Output JSON: {{'hook': '...', 'body': '...', 'cta': '...'}}"
+async def generate_voice(text, output_path):
+    """Voiceover jernih ala TikTok Influencer."""
+    import edge_tts
+    # Suara Gadis (Cewek) atau Ardi (Cowok)
+    voice = random.choice(["id-ID-GadisNeural", "id-ID-ArdiNeural"])
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_path)
+
+def get_ai_creative_script(product_name):
+    """Bikin skrip yang gak template-an sama sekali."""
+    prompt = f"""
+    Tugas: Jadi TikTok Creator yang lagi spill {product_name}. 
+    Konteks: Bahasa 2026, sangat santai, pake slang 'real', 'aura', 'cooking'. 
+    Buatlah 1 paragraf narasi (max 20 kata) yang isinya: Hook menarik + spill dikit + suruh cek keranjang.
+    Output HANYA teks narasinya saja, jangan ada embel-embel lain.
+    """
     try:
-        # FIX 1: Gunakan path model yang lengkap
-        response = client.models.generate_content(
-            model="models/gemini-1.5-flash", 
-            contents=prompt
-        )
-        text_data = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(text_data)
+        response = client.models.generate_content(model="models/gemini-1.5-flash", contents=prompt)
+        return response.text.strip()
     except:
-        return {"hook": "POV: NEMU BARANG VIRAL!", "body": "Nambah aura points parah sih.", "cta": "Cek keranjang kuning!"}
+        return f"Real banget sih produk {product_name} ini, nambah aura points parah. Sikat di keranjang kuning sekarang!"
 
-def create_cool_video(image_path, product_name, output_path):
-    print(f"🎬 Meracik konten untuk {product_name}...")
-    script = get_slang_narration(product_name)
+def create_advanced_video(image_path, mascot_path, product_name, output_path):
+    # 1. Siapkan Narasi & Voiceover
+    narasi = get_ai_creative_script(product_name)
+    asyncio.run(generate_voice(narasi, "audio.mp3"))
+    audio_clip = AudioFileClip("audio.mp3")
+    duration = audio_clip.duration + 0.5
     
-    durations = [4, 8, 4]
-    texts = [script['hook'], script['body'], script['cta']]
-    clips = []
-
-    # FIX 2: Gunakan PATH ABSOLUT font di Linux GitHub Runner
-    FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
-    for i in range(3):
-        bg = ImageClip(image_path).with_duration(durations[i])
+    # 2. Canvas TikTok HD (9:16)
+    W, H = 1080, 1920
+    # Background Gradasi Gelap (Elegan)
+    bg = ColorClip(size=(W, H), color=(15, 15, 15)).with_duration(duration)
+    
+    # 3. Konten Utama (Gambar Produk)
+    # Kita bikin sedikit zoom-in tapi dengan angka bulat agar tidak pecah
+    prod_img = ImageClip(image_path).with_duration(duration)
+    prod_img = prod_img.resized(width=int(W * 0.85))
+    prod_img = prod_img.with_position(('center', 450))
+    
+    # 4. Fitur Baru: MASCOT NARRATOR (Jika file ada)
+    overlays = [bg, prod_img]
+    if os.path.exists(mascot_path):
+        mascot = ImageClip(mascot_path).with_duration(duration)
+        mascot = mascot.resized(height=int(H * 0.25)) # Ukuran 25% layar
         
-        if i % 2 == 0:
-            bg = bg.resized(lambda t: 1 + 0.04 * t)
-        else:
-            bg = bg.resized(lambda t: 1.2 - 0.04 * t)
-            
-        # FIX 3: Gunakan int() untuk ukuran agar tidak kena TypeError desimal
-        target_width = int(bg.w * 0.9)
-        
-        txt = TextClip(
-            text=texts[i].upper(),
-            font_size=50, 
-            color='yellow' if i == 0 else 'white',
-            font=FONT_PATH, 
-            method='caption',
-            size=(target_width, None), # Ukuran sudah bulat (integer)
-            bg_color='black'
-        ).with_opacity(0.85).with_duration(durations[i]).with_position(('center', 0.7, True))
-        
-        clips.append(CompositeVideoClip([bg.with_position("center"), txt]))
+        # Efek "Bouncing" agar karakter terlihat hidup saat bicara
+        mascot = mascot.with_position(lambda t: (int(W*0.05), int(H*0.65 + (5 * (t % 0.5 > 0.25)))))
+        overlays.append(mascot)
 
-    final_video = concatenate_videoclips(clips)
-    final_video.write_videofile(output_path, fps=24, codec="libx264")
+    # 5. Dynamic Text (Caption Otomatis)
+    # Teks atas (Hook)
+    txt_top = TextClip(
+        text="SPILL BARANG VIRAL 2026 🚀",
+        font_size=55, color='yellow', font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        method='caption', size=(int(W*0.9), None)
+    ).with_duration(duration).with_position(('center', 150))
+    
+    # Teks bawah (Sesuai Voiceover)
+    txt_main = TextClip(
+        text=narasi.upper(),
+        font_size=40, color='white', font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        bg_color='rgba(0,0,0,0.6)', method='caption', size=(int(W*0.8), None)
+    ).with_duration(duration).with_position(('center', H-450))
 
-def send_to_telegram(video_path):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVideo"
-    with open(video_path, 'rb') as v:
-        requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID, 'caption': 'Video FYP Ready! 🚀'}, files={'video': v})
+    overlays.extend([txt_top, txt_main])
+
+    # 6. Gabungkan & Render
+    final_video = CompositeVideoClip(overlays)
+    final_video = final_video.with_audio(audio_clip)
+    
+    print("🚀 Sedang merender video HD...")
+    final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
 
 if __name__ == "__main__":
+    PRODUCT = os.getenv('PRODUCT_NAME', 'Produk Rahasia')
     if os.path.exists("produk.jpg"):
-        create_cool_video("produk.jpg", os.getenv('PRODUCT_NAME', 'Produk Viral'), "video_viral.mp4")
-        send_to_telegram("video_viral.mp4")
+        create_advanced_video("produk.jpg", "mascot.png", PRODUCT, "video_final.mp4")
+        
+        # Kirim ke Telegram
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVideo"
+        with open("video_final.mp4", 'rb') as v:
+            requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID, 'caption': f'✅ Hasil konten: {PRODUCT}'}, files={'video': v})
+    else:
+        print("Error: Pastikan produk.jpg ada di folder.")
     
