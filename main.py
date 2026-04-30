@@ -1,81 +1,96 @@
 import os
-import random
 import requests
+import google.generativeai as genai
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
-# --- KONFIGURASI ---
+# --- 1. SETUP KREDENSIAL ---
+GEMINI_KEY = os.getenv('GEMINI_API_KEY')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-def get_dynamic_script(product_name):
+genai.configure(api_key=GEMINI_KEY)
+model = genai.GenerativeModel('gemini-pro')
+
+def get_slang_narration(product_name):
     """
-    Menghasilkan skrip yang berbeda-beda setiap kali dijalankan.
-    Kamu bisa mengembangkan ini dengan API Gemini agar lebih 'pintar'.
+    Meminta Gemini buat narasi pake bahasa Jaksel/TikTok 2026 yang lagi hype.
     """
-    templates = [
-        {
-            "hook": f"POV: Kamu baru nemu {product_name} yang lagi viral! 🔥",
-            "body": "Gak nyangka banget kualitasnya sebagus ini dengan harga segini.",
-            "cta": "Mumpung masih diskon, cek keranjang kuning sekarang! 🛒"
-        },
-        {
-            "hook": f"Stop scroll! Kalian harus liat {product_name} ini.. 😱",
-            "body": "Solusi buat kamu yang pengen tampil keren tapi budget pelajar.",
-            "cta": "Klik keranjang kuning sebelum kehabisan stok! ✨"
-        },
-        {
-            "hook": f"Racun TikTok hari ini: {product_name} check! ✨",
-            "body": "Desainnya estetik banget dan multifungsi buat sehari-hari.",
-            "cta": "Cek promo hari ini di keranjang kuning ya! 👇"
+    prompt = f"""
+    Tugas: Jadi TikTok Content Creator Affiliate yang lagi spill produk: {product_name}.
+    Aturan: 
+    - JANGAN BAKU. JANGAN KAKU. 
+    - Gunakan bahasa gaul TikTok 2026 (contoh: aura points, cooking, real, no cap, demure, mindful, atau slang yang lagi naik).
+    - Gaya bahasa harus kayak lagi ngomong sama bestie, santai, dan persuasif tapi gak maksa.
+    - Hindari kata 'Halo teman-teman' atau 'Selamat datang'. Langsung to the point.
+
+    Output harus JSON mentah (tanpa markdown):
+    {{
+      "hook": "Kalimat pancingan yang bikin orang berhenti scroll (max 7 kata)",
+      "body": "Penjelasan kenapa produk ini 'very mindful, very demure' atau 'menambah aura points' (max 12 kata)",
+      "cta": "Ajakan klik keranjang kuning yang asik (max 6 kata)"
+    }}
+    """
+    try:
+        response = model.generate_content(prompt)
+        # Menghapus karakter non-JSON jika ada
+        clean_text = response.text.replace('```json', '').replace('```', '').strip()
+        return eval(clean_text)
+    except Exception as e:
+        print(f"AI Error: {e}")
+        return {
+            "hook": "Jujurly ini cakep parah sih..",
+            "body": "Gak paham lagi kenapa harganya bisa semurah ini. Definisi real!",
+            "cta": "Sikat di keranjang kuning! 🔥"
         }
-    ]
-    return random.choice(templates)
 
-def create_segment(image_path, text, duration, zoom_type="in"):
-    """Membuat potongan video dengan teks dan efek zoom."""
-    clip = ImageClip(image_path).set_duration(duration)
+def create_cool_video(image_path, product_name, output_path):
+    print(f"🔥 Generating content for {product_name}...")
+    script = get_slang_narration(product_name)
     
-    # Efek Gerakan (Zoom In atau Zoom Out)
-    if zoom_type == "in":
-        clip = clip.resize(lambda t: 1 + 0.04 * t)
-    else:
-        clip = clip.resize(lambda t: 1.2 - 0.04 * t)
-    
-    # Overlay Teks dengan Background Box agar mudah dibaca
-    txt = TextClip(text, fontsize=45, color='white', font='Arial-Bold',
-                   method='caption', size=(clip.w * 0.8, None), 
-                   bg_color='rgba(0,0,0,0.6)')
-    
-    # Posisi teks sedikit di bawah tengah (aman dari UI TikTok)
-    txt = txt.set_position(('center', 0.65, True)).set_duration(duration)
-    
-    return CompositeVideoClip([clip.set_position("center"), txt])
+    # Durasi total 16 detik
+    # Segmen 1: Hook (4s), Segmen 2: Body (8s), Segmen 3: CTA (4s)
+    durations = [4, 8, 4]
+    texts = [script['hook'], script['body'], script['cta']]
+    clips = []
 
-def build_full_video(image_path, product_name, output_path):
-    print(f"Memproses konten untuk: {product_name}")
-    script = get_dynamic_script(product_name)
-    
-    # Membagi 16 detik menjadi 3 bagian: Hook (4s), Body (8s), CTA (4s)
-    segment_1 = create_segment(image_path, script['hook'], 4, "in")
-    segment_2 = create_segment(image_path, script['body'], 8, "out")
-    segment_3 = create_segment(image_path, script['cta'], 4, "in")
-    
-    final_video = concatenate_videoclips([segment_1, segment_2, segment_3])
-    final_video.write_videofile(output_path, fps=24, codec="libx264", audio=False)
+    for i in range(3):
+        # Buat background dengan efek zoom bergantian
+        bg = ImageClip(image_path).set_duration(durations[i])
+        if i % 2 == 0:
+            bg = bg.resize(lambda t: 1 + 0.04 * t) # Zoom In
+        else:
+            bg = bg.resize(lambda t: 1.2 - 0.04 * t) # Zoom Out
+            
+        # Buat Overlay Teks
+        txt = TextClip(
+            texts[i].upper(), # Bikin uppercase biar lebih tegas
+            fontsize=50, 
+            color='yellow' if i == 0 else 'white', # Hook warna kuning biar eye-catching
+            font='Arial-Bold',
+            method='caption',
+            size=(bg.w * 0.9, None),
+            bg_color='black',
+            align='center'
+        ).set_opacity(0.9).set_duration(durations[i]).set_position(('center', 0.7, True))
+        
+        clips.append(CompositeVideoClip([bg.set_position("center"), txt]))
+
+    final_video = concatenate_videoclips(clips)
+    final_video.write_videofile(output_path, fps=24, codec="libx264")
 
 def send_to_telegram(video_path):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVideo"
     with open(video_path, 'rb') as v:
-        requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID, 'caption': '🚀 Konten siap posting!'}, files={'video': v})
+        requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID, 'caption': 'Cek auranya! Siap gas? 🚀'}, files={'video': v})
 
 if __name__ == "__main__":
-    IMAGE_FILE = "produk.jpg"
-    PRODUCT_NAME = "Produk Viral Ini" # Ubah manual atau ambil dari nama file
-    OUTPUT = "tiktok_affiliate.mp4"
+    FILE_GAMBAR = "produk.jpg"
+    NAMA_PRODUK = "Smartwatch Ultra Gen 2" # Ganti tiap mau upload
+    OUTPUT = "video_viral.mp4"
     
-    if os.path.exists(IMAGE_FILE):
-        build_full_video(IMAGE_FILE, PRODUCT_NAME, OUTPUT)
+    if os.path.exists(FILE_GAMBAR):
+        create_cool_video(FILE_GAMBAR, NAMA_PRODUK, OUTPUT)
         send_to_telegram(OUTPUT)
     else:
-        print("Sediakan file produk.jpg di folder!")
+        print("Gambarnya mana? Masukin produk.jpg dulu bos!")
         
